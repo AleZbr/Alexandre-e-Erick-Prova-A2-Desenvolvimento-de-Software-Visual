@@ -8,9 +8,7 @@ var app = builder.Build();
 app.MapGet("/", () => "Hello World!");
 
 
-app.MapPost("/api/folha/cadastrar",
-    ([FromBody] Folha? folha,
-    [FromServices] AppDataContext ctx) =>
+app.MapPost("/api/folha/cadastrar",([FromBody] Folha? folha,[FromServices] AppDataContext ctx) =>
 {
     if (folha is null)
     {
@@ -68,20 +66,117 @@ app.MapPost("/api/folha/cadastrar",
     folha.ImpostoRenda = (folha.ValorBruto * 0.275) - 869.36;
     }
    
+// Até 1.693,72             → 8%
+// Até 2.822,90             → 9%
+// Até 5.645,80             → 11%
+// Acima disso              → R$ 621,03 fixo
+
+    if (folha.ValorBruto <= 1693.72)
+    {
+        folha.inss = folha.ValorBruto * 0.08;
+    }
+    else if (folha.ValorBruto <= 2822.90)
+    {
+        folha.inss = folha.ValorBruto * 0.09;
+    }   
+    else if (folha.ValorBruto <= 5645.80)
+    {
+        folha.inss = folha.ValorBruto * 0.11;
+    }
+    else
+    {
+        folha.inss = 621.03;
+    }
 
 
-    return Results.Ok(folha);
+    folha.fgts = folha.ValorBruto * 0.08;
+
+    folha.SalarioLiquido =
+    folha.ValorBruto -
+    folha.ImpostoRenda -
+    folha.inss;
+
+
+ctx.Folhas.Add(folha);
+ctx.SaveChanges();
+
+return Results.Created("", folha);
+});
+
+app.MapGet("/api/folha/listar",([FromServices] AppDataContext ctx) =>
+{
+    if (ctx.Folhas.Count() == 0)
+    {
+        return Results.NotFound("Nenhuma folha encontrada");
+    }
+
+    return Results.Ok(ctx.Folhas.ToList());
 });
 
 
-// Até 1903,98                  → IR = 0
-// De 1903,99 até 2826,65      → 7,5% - 142,80
-// De 2826,66 até 3751,05      → 15%  - 354,80
-// De 3751,06 até 4664,68      → 22,5% - 636,13
-// Acima de 4664,68            → 27,5% - 869,36
+
+app.MapGet("/api/folha/buscar/{cpf}/{mes}/{ano}",([FromRoute] string cpf,[FromRoute] int mes,[FromRoute] int ano,[FromServices] AppDataContext ctx) =>
+{
+    Folha? folhaEncontrada =
+        ctx.Folhas.FirstOrDefault(x =>
+            x.CPF == cpf &&
+            x.Mes == mes &&
+            x.Ano == ano);
+
+    if (folhaEncontrada is null)
+    {
+        return Results.NotFound("Folha não encontrada");
+    }
+
+    return Results.Ok(folhaEncontrada);
+});
+
+
+
+app.MapDelete("/api/folha/remover/{cpf}/{mes}/{ano}",([FromRoute] string cpf,[FromRoute] int mes,[FromRoute] int ano,[FromServices] AppDataContext ctx) =>
+{
+    Folha? folhaEncontrada =
+        ctx.Folhas.FirstOrDefault(x =>
+            x.CPF == cpf &&
+            x.Mes == mes &&
+            x.Ano == ano);
+
+    if (folhaEncontrada is null)
+    {
+        return Results.NotFound("Folha não encontrada");
+    }
+
+    ctx.Folhas.Remove(folhaEncontrada);
+    ctx.SaveChanges();
+
+    return Results.Ok(folhaEncontrada);
+});
+
+
+app.MapGet("/api/folha/total-liquido",([FromServices] AppDataContext ctx) =>
+{
+    if (ctx.Folhas.Count() == 0)
+    {
+        return Results.NotFound("Nenhuma folha encontrada");
+    }
+
+    double totalLiquido =
+        ctx.Folhas.Sum(x => x.SalarioLiquido);
+
+    totalLiquido = Math.Round(totalLiquido, 2);
+
+    return Results.Ok(new
+    {
+        totalLiquido = totalLiquido
+    });
+
+    
+});
+
+
+
 
 
 
 
 app.Run();
-
